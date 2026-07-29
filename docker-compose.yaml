@@ -25,7 +25,7 @@ x-app-environment: &app-environment
 
 x-app-service: &app-service
   build:
-    context: .
+    context: "${BUILD_CONTEXT:-.}"
     dockerfile: Dockerfile
     target: production
   image: afiliados-ojev:latest
@@ -119,4 +119,3 @@ volumes:
   app_storage:
   postgres_data:
   redis_data:
-
