@@ -22,6 +22,7 @@ x-app-environment: &app-environment
   REDIS_PORT: "6379"
   FILESYSTEM_DISK: local
   INE_OCR_TESSERACT_PATH: /usr/bin/tesseract
+  TRUSTED_PROXIES: "${TRUSTED_PROXIES:-127.0.0.1}"
 
 x-app-service: &app-service
   build:
