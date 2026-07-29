@@ -1,0 +1,13 @@
+.git
+.github
+.idea
+.vscode
+backend/.env
+backend/node_modules
+backend/public/build
+backend/storage/logs/*
+backend/storage/framework/cache/data/*
+backend/storage/framework/sessions/*
+backend/storage/framework/views/*
+backend/vendor
+

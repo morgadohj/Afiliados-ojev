@@ -1,0 +1,122 @@
+x-app-environment: &app-environment
+  APP_NAME: "Afiliados OJEV"
+  APP_ENV: production
+  APP_DEBUG: "false"
+  APP_URL: "${APP_URL:-http://localhost:8088}"
+  APP_LOCALE: es
+  APP_FALLBACK_LOCALE: es
+  APP_FAKER_LOCALE: es_MX
+  LOG_CHANNEL: stderr
+  LOG_LEVEL: warning
+  DB_CONNECTION: pgsql
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_DATABASE: "${DB_DATABASE:-afiliados_ojev}"
+  DB_USERNAME: "${DB_USERNAME:-afiliados_ojev}"
+  SESSION_DRIVER: redis
+  SESSION_ENCRYPT: "true"
+  CACHE_STORE: redis
+  QUEUE_CONNECTION: redis
+  REDIS_CLIENT: phpredis
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  FILESYSTEM_DISK: local
+  INE_OCR_TESSERACT_PATH: /usr/bin/tesseract
+
+x-app-service: &app-service
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: production
+  image: afiliados-ojev:latest
+  restart: unless-stopped
+  environment: *app-environment
+  volumes:
+    - app_storage:/var/www/html/storage
+    - app_secrets:/run/app-secrets:ro
+  depends_on:
+    secrets:
+      condition: service_completed_successfully
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  secrets:
+    image: alpine:3.22
+    restart: "no"
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        umask 077
+        if [ ! -s /secrets/app_key ]; then
+          printf 'base64:' > /secrets/app_key
+          head -c 32 /dev/urandom | base64 >> /secrets/app_key
+        fi
+        if [ ! -s /secrets/db_password ]; then
+          head -c 48 /dev/urandom | base64 | tr -d '\n' > /secrets/db_password
+        fi
+    volumes:
+      - app_secrets:/secrets
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${DB_DATABASE:-afiliados_ojev}"
+      POSTGRES_USER: "${DB_USERNAME:-afiliados_ojev}"
+      POSTGRES_PASSWORD_FILE: /run/app-secrets/db_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - app_secrets:/run/app-secrets:ro
+    depends_on:
+      secrets:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --save 60 100
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  web:
+    <<: *app-service
+    ports:
+      - "${APP_PORT:-8088}:80"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1/up"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  queue:
+    <<: *app-service
+    command: ["queue"]
+
+  scheduler:
+    <<: *app-service
+    command: ["scheduler"]
+
+volumes:
+  app_secrets:
+  app_storage:
+  postgres_data:
+  redis_data:
+
