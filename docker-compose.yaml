@@ -97,6 +97,9 @@ services:
 
   web:
     <<: *app-service
+    networks:
+      - default
+      - proxy
     ports:
       - "${APP_PORT:-8088}:80"
     healthcheck:
@@ -119,3 +122,8 @@ volumes:
   app_storage:
   postgres_data:
   redis_data:
+
+networks:
+  proxy:
+    name: "${PROXY_NETWORK:-afiliados-ojev-proxy}"
+    external: "${PROXY_NETWORK_EXTERNAL:-false}"
