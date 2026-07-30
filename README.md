@@ -15,6 +15,7 @@ La primera entrega implementa el registro público de afiliados:
 - almacenamiento privado y cifrado de INE y foto;
 - aceptación explícita de la declaración de afiliación;
 - interfaz responsiva para computadora y teléfono.
+- recursos web compilados para Safari/iOS 16 o superior.
 
 El OCR nunca confirma datos automáticamente. La persona debe revisar y corregir cada campo antes de enviar.
 
