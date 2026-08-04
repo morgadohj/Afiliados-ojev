@@ -37,6 +37,8 @@ Esta especificación se deriva del formato de afiliación de Jinetes del Estado 
 4. CURP, fecha de nacimiento, nombre y domicilio se validan antes del registro.
 5. El texto bruto del OCR no se persiste desde el navegador.
 6. Las imágenes definitivas se almacenan cifradas.
+7. La imagen se autoorienta, se convierte a escala de grises y se mejora antes del reconocimiento.
+8. Se prueban distintos modos de segmentación cuando la primera lectura no alcanza campos suficientes.
 
 ## Pendientes previos a producción
 

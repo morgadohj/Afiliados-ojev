@@ -4,6 +4,7 @@ return [
 
     'ine_ocr' => [
         'tesseract_path' => env('INE_OCR_TESSERACT_PATH', 'tesseract'),
+        'imagemagick_path' => env('INE_OCR_IMAGEMAGICK_PATH', 'convert'),
     ],
 
     /*

@@ -42,10 +42,10 @@ php artisan migrate
 composer run dev
 ```
 
-Tesseract y el paquete de idiomas deben estar disponibles:
+Tesseract, el paquete de idiomas e ImageMagick deben estar disponibles:
 
 ```bash
-brew install tesseract tesseract-lang
+brew install tesseract tesseract-lang imagemagick
 ```
 
 La aplicación queda disponible en `http://localhost:8000/afiliacion`.
