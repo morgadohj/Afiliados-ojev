@@ -45,12 +45,9 @@ const statusLabels: Record<string, string> = {
 };
 
 const statusStyles: Record<string, string> = {
-    submitted:
-        'bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-950/40 dark:text-amber-300',
-    approved:
-        'bg-emerald-50 text-emerald-800 ring-emerald-600/20 dark:bg-emerald-950/40 dark:text-emerald-300',
-    rejected:
-        'bg-red-50 text-red-800 ring-red-600/20 dark:bg-red-950/40 dark:text-red-300',
+    submitted: 'bg-amber-50 text-amber-800 ring-amber-600/20',
+    approved: 'bg-emerald-50 text-emerald-800 ring-emerald-600/20',
+    rejected: 'bg-red-50 text-red-800 ring-red-600/20',
 };
 
 function formatDate(value: string): string {
@@ -92,22 +89,19 @@ export default function Dashboard({ affiliates, summary }: Props) {
             label: 'Total de afiliados',
             value: summary.total,
             icon: Users,
-            iconClass:
-                'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900',
+            iconClass: 'bg-stone-900 text-white',
         },
         {
             label: 'Capturados por usuarios',
             value: summary.administrative,
             icon: UserPlus,
-            iconClass:
-                'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
+            iconClass: 'bg-[#f2cf6b] text-[#714b0f]',
         },
         {
             label: 'Registros públicos',
             value: summary.public,
             icon: Globe2,
-            iconClass:
-                'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300',
+            iconClass: 'bg-[#f3ead7] text-[#8a5d12]',
         },
     ];
 
@@ -131,7 +125,7 @@ export default function Dashboard({ affiliates, summary }: Props) {
                         </div>
                         <Link
                             href="/administracion/afiliar"
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-foreground px-4 text-sm font-semibold text-background transition hover:opacity-90"
+                            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#b17b17] px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#966411]"
                         >
                             <UserPlus className="size-4" />
                             Afiliar persona
@@ -254,7 +248,7 @@ export default function Dashboard({ affiliates, summary }: Props) {
                                                 <td className="px-5 py-4">
                                                     {affiliate.registered_by ? (
                                                         <div className="flex items-center gap-2">
-                                                            <span className="grid size-8 place-items-center rounded-full bg-amber-100 text-xs font-bold text-amber-900 dark:bg-amber-950 dark:text-amber-300">
+                                                            <span className="grid size-8 place-items-center rounded-full bg-amber-100 text-xs font-bold text-amber-900">
                                                                 {affiliate.registered_by.name
                                                                     .slice(0, 1)
                                                                     .toUpperCase()}

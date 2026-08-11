@@ -7,7 +7,7 @@
 
 @custom-variant dark (&:is(.dark *));
 
-@theme {
+@theme inline {
     --font-sans:
         'Instrument Sans', ui-sans-serif, system-ui, sans-serif,
         'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
@@ -130,6 +130,34 @@
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(0.269 0 0);
     --sidebar-ring: oklch(0.439 0 0);
+}
+
+.ojev-admin-theme {
+    --background: #f5f1e8;
+    --foreground: #1c1917;
+    --card: #fffdf9;
+    --card-foreground: #1c1917;
+    --popover: #fffdf9;
+    --popover-foreground: #1c1917;
+    --primary: #b17b17;
+    --primary-foreground: #ffffff;
+    --secondary: #f3ead7;
+    --secondary-foreground: #5c3b0c;
+    --muted: #eee8dc;
+    --muted-foreground: #78716c;
+    --accent: #f6ecd4;
+    --accent-foreground: #714b0f;
+    --border: #ded5c5;
+    --input: #d8cdbb;
+    --ring: #b17b17;
+    --sidebar: #fffdf9;
+    --sidebar-foreground: #292524;
+    --sidebar-primary: #b17b17;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #f6ecd4;
+    --sidebar-accent-foreground: #714b0f;
+    --sidebar-border: #ded5c5;
+    --sidebar-ring: #b17b17;
 }
 
 @layer base {
