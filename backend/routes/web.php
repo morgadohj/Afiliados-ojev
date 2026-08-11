@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AffiliationController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\UserManagementController;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/afiliacion')->name('home');
@@ -26,6 +27,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('administracion/afiliar', [AffiliationController::class, 'storeAdministrative'])
         ->middleware('throttle:10,1')
         ->name('admin.affiliation.store');
+
+    Route::middleware('administrator')->group(function () {
+        Route::get('administracion/usuarios', [UserManagementController::class, 'index'])
+            ->name('admin.users.index');
+        Route::post('administracion/usuarios', [UserManagementController::class, 'store'])
+            ->name('admin.users.store');
+    });
 });
 
 require __DIR__.'/settings.php';
