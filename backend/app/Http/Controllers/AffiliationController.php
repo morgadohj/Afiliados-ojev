@@ -21,6 +21,13 @@ class AffiliationController extends Controller
         ]);
     }
 
+    public function createAdministrative(TesseractIneExtractor $extractor): Response
+    {
+        return Inertia::render('admin/affiliation/create', [
+            'ocrAvailable' => $extractor->available(),
+        ]);
+    }
+
     public function extractIne(Request $request, TesseractIneExtractor $extractor): JsonResponse
     {
         $validated = $request->validate([
@@ -51,9 +58,24 @@ class AffiliationController extends Controller
         StoreAffiliateRequest $request,
         PrivateDocumentStorage $documents,
     ): JsonResponse {
+        return $this->persist($request, $documents);
+    }
+
+    public function storeAdministrative(
+        StoreAffiliateRequest $request,
+        PrivateDocumentStorage $documents,
+    ): JsonResponse {
+        return $this->persist($request, $documents, $request->user()->id);
+    }
+
+    private function persist(
+        StoreAffiliateRequest $request,
+        PrivateDocumentStorage $documents,
+        ?int $createdByUserId = null,
+    ): JsonResponse {
         $validated = $request->validated();
 
-        $affiliate = DB::transaction(function () use ($validated, $request, $documents): Affiliate {
+        $affiliate = DB::transaction(function () use ($validated, $request, $documents, $createdByUserId): Affiliate {
             $affiliate = Affiliate::create([
                 ...collect($validated)->except([
                     'profile_photo',
@@ -74,6 +96,7 @@ class AffiliationController extends Controller
                     'affiliates/ine',
                 ),
                 'consent_accepted_at' => now(),
+                'created_by_user_id' => $createdByUserId,
                 'ocr_metadata' => $request->filled('ocr_metadata')
                     ? json_decode($request->string('ocr_metadata')->toString(), true)
                     : null,
@@ -87,7 +110,9 @@ class AffiliationController extends Controller
         });
 
         return response()->json([
-            'message' => 'Tu solicitud de afiliación fue recibida.',
+            'message' => $createdByUserId
+                ? 'La afiliación fue registrada correctamente.'
+                : 'Tu solicitud de afiliación fue recibida.',
             'folio' => $affiliate->folio,
         ], 201);
     }

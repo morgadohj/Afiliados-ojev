@@ -16,6 +16,15 @@ Route::post('afiliacion', [AffiliationController::class, 'store'])
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::inertia('dashboard', 'dashboard')->name('dashboard');
+
+    Route::get('administracion/afiliar', [AffiliationController::class, 'createAdministrative'])
+        ->name('admin.affiliation.create');
+    Route::post('administracion/afiliar/extraer-ine', [AffiliationController::class, 'extractIne'])
+        ->middleware('throttle:20,1')
+        ->name('admin.affiliation.extract-ine');
+    Route::post('administracion/afiliar', [AffiliationController::class, 'storeAdministrative'])
+        ->middleware('throttle:10,1')
+        ->name('admin.affiliation.store');
 });
 
 require __DIR__.'/settings.php';

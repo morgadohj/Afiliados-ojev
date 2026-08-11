@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Affiliate extends Model
 {
@@ -34,6 +35,7 @@ class Affiliate extends Model
         'ine_back_path',
         'signature_name',
         'consent_accepted_at',
+        'created_by_user_id',
         'status',
         'ocr_metadata',
     ];
@@ -46,5 +48,10 @@ class Affiliate extends Model
             'consent_accepted_at' => 'datetime',
             'ocr_metadata' => 'array',
         ];
+    }
+
+    public function createdBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by_user_id');
     }
 }

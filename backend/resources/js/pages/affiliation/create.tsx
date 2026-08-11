@@ -17,8 +17,9 @@ import { useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { login } from '@/routes';
 
-type Props = {
+export type AffiliationFormProps = {
     ocrAvailable: boolean;
+    administrative?: boolean;
 };
 
 type FormValues = {
@@ -264,7 +265,10 @@ function UploadCard({
     );
 }
 
-export default function CreateAffiliation({ ocrAvailable }: Props) {
+export default function CreateAffiliation({
+    ocrAvailable,
+    administrative = false,
+}: AffiliationFormProps) {
     const [step, setStep] = useState(1);
     const [values, setValues] = useState(initialValues);
     const [ineFront, setIneFront] = useState<File | null>(null);
@@ -308,14 +312,19 @@ export default function CreateAffiliation({ ocrAvailable }: Props) {
         }
 
         try {
-            const response = await fetch('/afiliacion/extraer-ine', {
-                method: 'POST',
-                headers: {
-                    Accept: 'application/json',
-                    'X-CSRF-TOKEN': csrfToken(),
+            const response = await fetch(
+                administrative
+                    ? '/administracion/afiliar/extraer-ine'
+                    : '/afiliacion/extraer-ine',
+                {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json',
+                        'X-CSRF-TOKEN': csrfToken(),
+                    },
+                    body: payload,
                 },
-                body: payload,
-            });
+            );
             const data = (await response.json()) as
                 ExtractionResponse | { message: string; errors?: ApiErrors };
 
@@ -398,14 +407,17 @@ export default function CreateAffiliation({ ocrAvailable }: Props) {
         payload.append('ocr_metadata', JSON.stringify(ocrMetadata));
 
         try {
-            const response = await fetch('/afiliacion', {
-                method: 'POST',
-                headers: {
-                    Accept: 'application/json',
-                    'X-CSRF-TOKEN': csrfToken(),
+            const response = await fetch(
+                administrative ? '/administracion/afiliar' : '/afiliacion',
+                {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json',
+                        'X-CSRF-TOKEN': csrfToken(),
+                    },
+                    body: payload,
                 },
-                body: payload,
-            });
+            );
             const data = (await response.json()) as {
                 message: string;
                 folio?: string;
@@ -443,11 +455,14 @@ export default function CreateAffiliation({ ocrAvailable }: Props) {
                             Solicitud recibida
                         </p>
                         <h1 className="mt-3 text-3xl font-black tracking-tight text-stone-900">
-                            Gracias por afiliarte a OJEV
+                            {administrative
+                                ? 'Afiliación registrada'
+                                : 'Gracias por afiliarte a OJEV'}
                         </h1>
                         <p className="mt-4 leading-7 text-stone-600">
-                            Conserva tu folio. La delegación revisará tus datos
-                            y documentos antes de aprobar la afiliación.
+                            {administrative
+                                ? 'El registro quedó vinculado a tu usuario. Conserva el folio para dar seguimiento a la afiliación.'
+                                : 'Conserva tu folio. La delegación revisará tus datos y documentos antes de aprobar la afiliación.'}
                         </p>
                         <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-5">
                             <span className="block text-xs font-bold tracking-wider text-amber-700 uppercase">
@@ -466,36 +481,42 @@ export default function CreateAffiliation({ ocrAvailable }: Props) {
     return (
         <>
             <Head title="Registro de afiliación" />
-            <div className="min-h-screen bg-[#f5f1e8] text-stone-900">
-                <header className="border-b border-stone-200/80 bg-white">
-                    <div className="mx-auto flex max-w-7xl items-center gap-4 px-5 py-4 sm:px-8">
-                        <div className="grid size-12 shrink-0 place-items-center rounded-full border-2 border-[#b88618] bg-gradient-to-br from-[#f2cf6b] to-[#9c6911] text-xs font-black tracking-wider text-white shadow-inner">
-                            OJEV
+            <div
+                className={`${administrative ? 'min-h-full rounded-xl' : 'min-h-screen'} bg-[#f5f1e8] text-stone-900`}
+            >
+                {!administrative && (
+                    <header className="border-b border-stone-200/80 bg-white">
+                        <div className="mx-auto flex max-w-7xl items-center gap-4 px-5 py-4 sm:px-8">
+                            <div className="grid size-12 shrink-0 place-items-center rounded-full border-2 border-[#b88618] bg-gradient-to-br from-[#f2cf6b] to-[#9c6911] text-xs font-black tracking-wider text-white shadow-inner">
+                                OJEV
+                            </div>
+                            <div>
+                                <strong className="block text-sm leading-tight">
+                                    Jinetes del Estado de Veracruz
+                                </strong>
+                                <span className="text-xs text-stone-500">
+                                    Asociación Civil
+                                </span>
+                            </div>
+                            <div className="ml-auto flex items-center gap-3">
+                                <span className="hidden items-center gap-2 text-xs font-semibold text-stone-500 md:flex">
+                                    <LockKeyhole className="size-4 text-emerald-700" />
+                                    Registro protegido
+                                </span>
+                                <Link
+                                    href={login()}
+                                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-stone-200 px-3 text-xs font-bold text-stone-700 transition hover:border-amber-300 hover:bg-amber-50 hover:text-amber-800"
+                                >
+                                    <LockKeyhole className="size-3.5" />
+                                    <span className="hidden sm:inline">
+                                        Acceso administrativo
+                                    </span>
+                                    <span className="sm:hidden">Acceso</span>
+                                </Link>
+                            </div>
                         </div>
-                        <div>
-                            <strong className="block text-sm leading-tight">
-                                Jinetes del Estado de Veracruz
-                            </strong>
-                            <span className="text-xs text-stone-500">
-                                Asociación Civil
-                            </span>
-                        </div>
-                        <div className="ml-auto flex items-center gap-3">
-                            <span className="hidden items-center gap-2 text-xs font-semibold text-stone-500 md:flex">
-                                <LockKeyhole className="size-4 text-emerald-700" />
-                                Registro protegido
-                            </span>
-                            <Link
-                                href={login()}
-                                className="inline-flex h-9 items-center gap-2 rounded-lg border border-stone-200 px-3 text-xs font-bold text-stone-700 transition hover:border-amber-300 hover:bg-amber-50 hover:text-amber-800"
-                            >
-                                <LockKeyhole className="size-3.5" />
-                                <span className="hidden sm:inline">Acceso administrativo</span>
-                                <span className="sm:hidden">Acceso</span>
-                            </Link>
-                        </div>
-                    </div>
-                </header>
+                    </header>
+                )}
 
                 <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8 sm:py-12">
                     <section className="mb-8 grid gap-8 lg:grid-cols-[1fr_auto] lg:items-end">
@@ -505,10 +526,12 @@ export default function CreateAffiliation({ ocrAvailable }: Props) {
                                 Formato oficial digital
                             </span>
                             <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-5xl">
-                                Registro de afiliación
+                                {administrative
+                                    ? 'Registrar nuevo afiliado'
+                                    : 'Registro de afiliación'}
                             </h1>
                             <p className="mt-3 max-w-2xl text-base leading-7 text-stone-600">
-                                Fotografía tu INE para completar los datos
+                                Fotografía la INE para completar los datos
                                 posibles. Podrás revisar y corregir cada campo
                                 antes de enviar.
                             </p>
@@ -1111,10 +1134,12 @@ export default function CreateAffiliation({ ocrAvailable }: Props) {
                         )}
                     </form>
                 </main>
-                <footer className="border-t border-stone-200 px-5 py-6 text-center text-xs text-stone-500">
-                    Jinetes del Estado de Veracruz OJEV, A.C. · Formulario de
-                    afiliación
-                </footer>
+                {!administrative && (
+                    <footer className="border-t border-stone-200 px-5 py-6 text-center text-xs text-stone-500">
+                        Jinetes del Estado de Veracruz OJEV, A.C. · Formulario
+                        de afiliación
+                    </footer>
+                )}
             </div>
         </>
     );
