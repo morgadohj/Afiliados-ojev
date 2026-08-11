@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AffiliationController;
+use App\Http\Controllers\DashboardController;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/afiliacion')->name('home');
@@ -15,7 +16,7 @@ Route::post('afiliacion', [AffiliationController::class, 'store'])
     ->name('affiliation.store');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::inertia('dashboard', 'dashboard')->name('dashboard');
+    Route::get('dashboard', DashboardController::class)->name('dashboard');
 
     Route::get('administracion/afiliar', [AffiliationController::class, 'createAdministrative'])
         ->name('admin.affiliation.create');
