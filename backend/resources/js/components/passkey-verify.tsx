@@ -45,14 +45,14 @@ export default function PasskeyVerify({
                 <Button
                     type="button"
                     variant="outline"
-                    className="w-full"
+                    className="h-11 w-full border-stone-200 bg-white text-stone-800 dark:border-stone-200 dark:bg-white dark:text-stone-800 dark:hover:bg-stone-50"
                     onClick={verify}
                     disabled={isLoading}
                 >
                     {isLoading ? <Spinner /> : <KeyRound className="h-4 w-4" />}
                     {isLoading
-                        ? (loadingLabel ?? 'Authenticating...')
-                        : (label ?? 'Sign in with a passkey')}
+                        ? (loadingLabel ?? 'Verificando...')
+                        : (label ?? 'Ingresar con una llave de acceso')}
                 </Button>
                 {error && (
                     <InputError message={error} className="text-center" />
@@ -61,11 +61,11 @@ export default function PasskeyVerify({
 
             <div className="relative my-6">
                 <div className="absolute inset-0 flex items-center">
-                    <Separator className="w-full" />
+                    <Separator className="w-full bg-stone-200 dark:bg-stone-200" />
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-background px-2 text-muted-foreground">
-                        {separator ?? 'Or continue with email'}
+                    <span className="bg-white px-2 text-stone-500 dark:bg-white dark:text-stone-500">
+                        {separator ?? 'O continúa con tu correo'}
                     </span>
                 </div>
             </div>

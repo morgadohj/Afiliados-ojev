@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 import {
     ArrowLeft,
     ArrowRight,
@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import { login } from '@/routes';
 
 type Props = {
     ocrAvailable: boolean;
@@ -479,10 +480,20 @@ export default function CreateAffiliation({ ocrAvailable }: Props) {
                                 Asociación Civil
                             </span>
                         </div>
-                        <span className="ml-auto hidden items-center gap-2 text-xs font-semibold text-stone-500 sm:flex">
-                            <LockKeyhole className="size-4 text-emerald-700" />
-                            Registro protegido
-                        </span>
+                        <div className="ml-auto flex items-center gap-3">
+                            <span className="hidden items-center gap-2 text-xs font-semibold text-stone-500 md:flex">
+                                <LockKeyhole className="size-4 text-emerald-700" />
+                                Registro protegido
+                            </span>
+                            <Link
+                                href={login()}
+                                className="inline-flex h-9 items-center gap-2 rounded-lg border border-stone-200 px-3 text-xs font-bold text-stone-700 transition hover:border-amber-300 hover:bg-amber-50 hover:text-amber-800"
+                            >
+                                <LockKeyhole className="size-3.5" />
+                                <span className="hidden sm:inline">Acceso administrativo</span>
+                                <span className="sm:hidden">Acceso</span>
+                            </Link>
+                        </div>
                     </div>
                 </header>
 
