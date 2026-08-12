@@ -22,6 +22,7 @@ class TesseractIneExtractor
     {
         $preparedImage = $this->preprocess($front);
         $imagePath = $preparedImage ?? $front->getRealPath();
+        $highContrastImage = null;
 
         try {
             $results = [
@@ -32,10 +33,20 @@ class TesseractIneExtractor
                 $results[] = $this->parser->parse($this->recognize($imagePath, 6));
             }
 
+            $combined = $this->parser->merge($results);
+            if (! isset($combined['fields']['first_name'], $combined['fields']['paternal_last_name'])) {
+                $highContrastImage = $this->preprocess($front, highContrast: true);
+                if ($highContrastImage !== null) {
+                    $results[] = $this->parser->parse($this->recognize($highContrastImage, 11));
+                }
+            }
+
             return $this->parser->merge($results);
         } finally {
-            if ($preparedImage !== null && is_file($preparedImage)) {
-                @unlink($preparedImage);
+            foreach ([$preparedImage, $highContrastImage] as $temporaryImage) {
+                if ($temporaryImage !== null && is_file($temporaryImage)) {
+                    @unlink($temporaryImage);
+                }
             }
         }
     }
@@ -50,6 +61,8 @@ class TesseractIneExtractor
             'spa+eng',
             '--psm',
             (string) $pageSegmentationMode,
+            '--dpi',
+            '300',
             '-c',
             'preserve_interword_spaces=1',
         ]);
@@ -63,7 +76,7 @@ class TesseractIneExtractor
         return $process->getOutput();
     }
 
-    private function preprocess(UploadedFile $file): ?string
+    private function preprocess(UploadedFile $file, bool $highContrast = false): ?string
     {
         $binary = (string) config('services.ine_ocr.imagemagick_path', 'convert');
         $version = new Process([$binary, '-version']);
@@ -80,8 +93,8 @@ class TesseractIneExtractor
         }
 
         @unlink($temporaryBase);
-        $outputPath = $temporaryBase.'.png';
-        $process = new Process([
+        $outputPath = $temporaryBase.($highContrast ? '-contrast' : '').'.png';
+        $arguments = [
             $binary,
             $file->getRealPath().'[0]',
             '-auto-orient',
@@ -89,11 +102,30 @@ class TesseractIneExtractor
             '-colorspace',
             'Gray',
             '-resize',
-            '2400x2400',
-            '-contrast-stretch',
-            '1%x1%',
-            '-sharpen',
-            '0x1',
+            $highContrast ? '3000x3000' : '2400x2400',
+        ];
+
+        if ($highContrast) {
+            array_push(
+                $arguments,
+                '-normalize',
+                '-contrast-stretch',
+                '4%x4%',
+                '-adaptive-sharpen',
+                '0x2',
+            );
+        } else {
+            array_push(
+                $arguments,
+                '-contrast-stretch',
+                '1%x1%',
+                '-sharpen',
+                '0x1',
+            );
+        }
+
+        array_push(
+            $arguments,
             '-deskew',
             '40%',
             '-bordercolor',
@@ -101,7 +133,9 @@ class TesseractIneExtractor
             '-border',
             '20',
             $outputPath,
-        ]);
+        );
+
+        $process = new Process($arguments);
         $process->setTimeout(30);
         $process->run();
 

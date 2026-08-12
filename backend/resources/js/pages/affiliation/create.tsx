@@ -6,14 +6,17 @@ import {
     Camera,
     Check,
     FileCheck2,
+    Focus,
+    Images,
+    Lightbulb,
     LoaderCircle,
     LockKeyhole,
     ScanLine,
     ShieldCheck,
     Sparkles,
-    Upload,
+    X,
 } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { login } from '@/routes';
 
@@ -80,6 +83,40 @@ const initialValues: FormValues = {
     oje_v_branch: '',
     signature_name: '',
     consent: false,
+};
+
+const stepTwoRequiredFields: Array<keyof FormValues> = [
+    'first_name',
+    'paternal_last_name',
+    'curp',
+    'birth_date',
+    'address_street',
+    'neighborhood',
+    'locality',
+    'municipality',
+    'state',
+    'postal_code',
+    'mobile_phone',
+    'email',
+    'occupation',
+    'oje_v_branch',
+];
+
+const fieldLabels: Partial<Record<keyof FormValues, string>> = {
+    first_name: 'Nombre(s)',
+    paternal_last_name: 'Apellido paterno',
+    curp: 'CURP',
+    birth_date: 'Fecha de nacimiento',
+    address_street: 'Calle y número',
+    neighborhood: 'Colonia',
+    locality: 'Localidad',
+    municipality: 'Municipio',
+    state: 'Entidad',
+    postal_code: 'Código postal',
+    mobile_phone: 'Teléfono celular',
+    email: 'Correo electrónico',
+    occupation: 'Ocupación u oficio',
+    oje_v_branch: 'Delegación o grupo filial OJEV',
 };
 
 const states = [
@@ -183,6 +220,7 @@ function UploadCard({
     onChange,
     required = true,
     error,
+    onOpenCamera,
 }: {
     title: string;
     help: string;
@@ -190,6 +228,7 @@ function UploadCard({
     onChange: (file: File | null) => void;
     required?: boolean;
     error?: string;
+    onOpenCamera?: () => void;
 }) {
     const inputRef = useRef<HTMLInputElement>(null);
     const preview = useMemo(
@@ -201,7 +240,13 @@ function UploadCard({
         <div>
             <button
                 type="button"
-                onClick={() => inputRef.current?.click()}
+                onClick={() => {
+                    if (onOpenCamera) {
+                        onOpenCamera();
+                    } else {
+                        inputRef.current?.click();
+                    }
+                }}
                 className={`group relative flex min-h-56 w-full overflow-hidden rounded-2xl border-2 border-dashed bg-stone-50 text-left transition hover:border-amber-500 hover:bg-amber-50/50 ${
                     error ? 'border-red-400' : 'border-stone-250'
                 }`}
@@ -246,8 +291,8 @@ function UploadCard({
                             {help}
                         </span>
                         <span className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-amber-800">
-                            <Upload className="size-3.5" />
-                            Tomar foto o elegir archivo
+                            <Camera className="size-3.5" />
+                            Abrir cámara con enfoque
                         </span>
                     </span>
                 )}
@@ -260,7 +305,415 @@ function UploadCard({
                 className="hidden"
                 onChange={(event) => onChange(event.target.files?.[0] ?? null)}
             />
+            <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                className="mt-3 inline-flex items-center gap-2 text-xs font-bold text-stone-500 underline decoration-stone-300 underline-offset-4 hover:text-amber-800"
+            >
+                <Images className="size-3.5" />
+                Elegir una foto existente
+            </button>
             {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+        </div>
+    );
+}
+
+type CameraCapabilities = MediaTrackCapabilities & {
+    focusMode?: string[];
+    exposureMode?: string[];
+    torch?: boolean | boolean[];
+};
+
+type CameraSupportedConstraints = MediaTrackSupportedConstraints & {
+    pointsOfInterest?: boolean;
+};
+
+type CameraConstraintSet = MediaTrackConstraintSet & {
+    focusMode?: string;
+    exposureMode?: string;
+    pointsOfInterest?: Array<{ x: number; y: number }>;
+    torch?: boolean;
+};
+
+function CameraCapture({
+    title,
+    documentMode,
+    onCapture,
+    onClose,
+}: {
+    title: string;
+    documentMode: boolean;
+    onCapture: (file: File) => void;
+    onClose: () => void;
+}) {
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const streamRef = useRef<MediaStream | null>(null);
+    const [cameraError, setCameraError] = useState<string | null>(null);
+    const [ready, setReady] = useState(false);
+    const [torchAvailable, setTorchAvailable] = useState(false);
+    const [torchEnabled, setTorchEnabled] = useState(false);
+    const [lightLevel, setLightLevel] = useState<
+        'checking' | 'low' | 'good' | 'high'
+    >('checking');
+    const [focusPoint, setFocusPoint] = useState<{
+        x: number;
+        y: number;
+    } | null>(null);
+
+    const currentTrack = () => streamRef.current?.getVideoTracks()[0];
+
+    const capabilitiesFor = (track: MediaStreamTrack): CameraCapabilities =>
+        typeof track.getCapabilities === 'function'
+            ? (track.getCapabilities() as CameraCapabilities)
+            : ({} as CameraCapabilities);
+
+    const applyAdvanced = async (constraints: CameraConstraintSet) => {
+        const track = currentTrack();
+
+        if (!track) {
+            return;
+        }
+
+        await track.applyConstraints({
+            advanced: [constraints] as MediaTrackConstraintSet[],
+        });
+    };
+
+    useEffect(() => {
+        let active = true;
+        let lightTimer: number | undefined;
+
+        const startCamera = async () => {
+            if (!navigator.mediaDevices?.getUserMedia) {
+                setCameraError(
+                    'Este navegador no permite controlar la cámara. Usa la opción para elegir o tomar una foto con el teléfono.',
+                );
+
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: {
+                        facingMode: {
+                            ideal: documentMode ? 'environment' : 'user',
+                        },
+                        width: { ideal: 2560 },
+                        height: { ideal: 1440 },
+                    },
+                });
+
+                if (!active) {
+                    stream.getTracks().forEach((track) => track.stop());
+
+                    return;
+                }
+
+                streamRef.current = stream;
+                const track = stream.getVideoTracks()[0];
+                const capabilities = capabilitiesFor(track);
+                setTorchAvailable(
+                    Array.isArray(capabilities.torch)
+                        ? capabilities.torch.includes(true)
+                        : capabilities.torch === true,
+                );
+
+                const initialConstraints: CameraConstraintSet = {};
+
+                if (capabilities.focusMode?.includes('continuous')) {
+                    initialConstraints.focusMode = 'continuous';
+                }
+
+                if (capabilities.exposureMode?.includes('continuous')) {
+                    initialConstraints.exposureMode = 'continuous';
+                }
+
+                if (Object.keys(initialConstraints).length > 0) {
+                    try {
+                        await track.applyConstraints({
+                            advanced: [
+                                initialConstraints,
+                            ] as MediaTrackConstraintSet[],
+                        });
+                    } catch {
+                        // Keep the camera available when a device rejects optional controls.
+                    }
+                }
+
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                    await videoRef.current.play();
+                    setReady(true);
+                }
+
+                lightTimer = window.setInterval(() => {
+                    const video = videoRef.current;
+
+                    if (!video || video.readyState < 2) {
+                        return;
+                    }
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 48;
+                    canvas.height = 32;
+                    const context = canvas.getContext('2d', {
+                        willReadFrequently: true,
+                    });
+
+                    if (!context) {
+                        return;
+                    }
+
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    const pixels = context.getImageData(
+                        0,
+                        0,
+                        canvas.width,
+                        canvas.height,
+                    ).data;
+                    let luminance = 0;
+
+                    for (let index = 0; index < pixels.length; index += 4) {
+                        luminance +=
+                            pixels[index] * 0.2126 +
+                            pixels[index + 1] * 0.7152 +
+                            pixels[index + 2] * 0.0722;
+                    }
+
+                    const average = luminance / (pixels.length / 4);
+                    setLightLevel(
+                        average < 65 ? 'low' : average > 220 ? 'high' : 'good',
+                    );
+                }, 700);
+            } catch {
+                setCameraError(
+                    'No fue posible abrir la cámara. Revisa el permiso de cámara o usa una foto existente.',
+                );
+            }
+        };
+
+        void startCamera();
+
+        return () => {
+            active = false;
+
+            if (lightTimer) {
+                window.clearInterval(lightTimer);
+            }
+
+            streamRef.current?.getTracks().forEach((track) => track.stop());
+        };
+    }, [documentMode]);
+
+    const focus = async (event?: React.PointerEvent<HTMLVideoElement>) => {
+        const track = currentTrack();
+
+        if (!track) {
+            return;
+        }
+
+        const capabilities = capabilitiesFor(track);
+        const supportedConstraints =
+            navigator.mediaDevices.getSupportedConstraints() as CameraSupportedConstraints;
+        const constraints: CameraConstraintSet = {};
+
+        if (capabilities.focusMode?.includes('single-shot')) {
+            constraints.focusMode = 'single-shot';
+        } else if (capabilities.focusMode?.includes('continuous')) {
+            constraints.focusMode = 'continuous';
+        }
+
+        if (event && videoRef.current) {
+            const bounds = videoRef.current.getBoundingClientRect();
+            const relativeX = Math.max(
+                0,
+                Math.min(1, (event.clientX - bounds.left) / bounds.width),
+            );
+            const relativeY = Math.max(
+                0,
+                Math.min(1, (event.clientY - bounds.top) / bounds.height),
+            );
+            setFocusPoint({ x: relativeX * 100, y: relativeY * 100 });
+
+            if (supportedConstraints.pointsOfInterest) {
+                constraints.pointsOfInterest = [
+                    {
+                        x: relativeX * videoRef.current.videoWidth,
+                        y: relativeY * videoRef.current.videoHeight,
+                    },
+                ];
+            }
+        } else {
+            setFocusPoint({ x: 50, y: 50 });
+        }
+
+        try {
+            await applyAdvanced(constraints);
+        } catch {
+            // Some iPhones report focus capabilities but reject manual changes.
+        }
+
+        window.setTimeout(() => setFocusPoint(null), 900);
+    };
+
+    const toggleTorch = async () => {
+        const next = !torchEnabled;
+
+        try {
+            await applyAdvanced({ torch: next });
+            setTorchEnabled(next);
+        } catch {
+            setTorchAvailable(false);
+        }
+    };
+
+    const capture = () => {
+        const video = videoRef.current;
+
+        if (!video || !video.videoWidth || !video.videoHeight) {
+            return;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const context = canvas.getContext('2d');
+
+        if (!context) {
+            return;
+        }
+
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(
+            (blob) => {
+                if (!blob) {
+                    return;
+                }
+
+                onCapture(
+                    new File([blob], `ine-${Date.now()}.jpg`, {
+                        type: 'image/jpeg',
+                    }),
+                );
+            },
+            'image/jpeg',
+            0.94,
+        );
+    };
+
+    const lightMessage = {
+        checking: 'Comprobando iluminación…',
+        low: 'Hay poca luz: activa la lámpara o busca más iluminación.',
+        good: 'Iluminación adecuada.',
+        high: 'Hay demasiado brillo: evita reflejos sobre la INE.',
+    }[lightLevel];
+
+    return (
+        <div className="fixed inset-0 z-[100] flex flex-col bg-stone-950 text-white">
+            <header className="flex items-center justify-between gap-4 px-4 py-4 sm:px-6">
+                <div>
+                    <p className="text-xs font-bold text-amber-300">
+                        Cámara OJEV
+                    </p>
+                    <h2 className="font-black">{title}</h2>
+                </div>
+                <button
+                    type="button"
+                    onClick={onClose}
+                    className="grid size-11 place-items-center rounded-full bg-white/10"
+                    aria-label="Cerrar cámara"
+                >
+                    <X className="size-5" />
+                </button>
+            </header>
+
+            <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
+                {cameraError ? (
+                    <div className="grid h-full place-items-center p-8 text-center">
+                        <div className="max-w-sm">
+                            <Camera className="mx-auto size-10 text-amber-300" />
+                            <p className="mt-4 text-sm leading-6 text-stone-200">
+                                {cameraError}
+                            </p>
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="mt-6 rounded-xl bg-white px-5 py-3 text-sm font-bold text-stone-900"
+                            >
+                                Volver al formulario
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <>
+                        <video
+                            ref={videoRef}
+                            autoPlay
+                            muted
+                            playsInline
+                            onPointerDown={(event) => void focus(event)}
+                            className="h-full w-full object-cover"
+                        />
+                        {documentMode && (
+                            <div className="pointer-events-none absolute top-1/2 left-[5%] aspect-[1.586/1] w-[90%] -translate-y-1/2 rounded-2xl border-2 border-white/85 shadow-[0_0_0_9999px_rgba(0,0,0,0.28)] sm:left-[12%] sm:w-[76%]" />
+                        )}
+                        <p className="pointer-events-none absolute top-[12%] left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-4 py-2 text-center text-xs font-bold backdrop-blur sm:top-[10%]">
+                            {documentMode
+                                ? 'Incluye las cuatro esquinas · toca para enfocar'
+                                : 'Centra el rostro · toca para enfocar'}
+                        </p>
+                        {focusPoint && (
+                            <span
+                                className="pointer-events-none absolute size-16 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-xl border-2 border-amber-300"
+                                style={{
+                                    left: `${focusPoint.x}%`,
+                                    top: `${focusPoint.y}%`,
+                                }}
+                            />
+                        )}
+                    </>
+                )}
+            </div>
+
+            {!cameraError && (
+                <footer className="space-y-4 px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6">
+                    <p
+                        className={`text-center text-xs font-bold ${lightLevel === 'good' ? 'text-emerald-300' : 'text-amber-300'}`}
+                    >
+                        {lightMessage}
+                    </p>
+                    <div className="grid grid-cols-3 items-center">
+                        <button
+                            type="button"
+                            onClick={() => void toggleTorch()}
+                            disabled={!torchAvailable}
+                            className="mx-auto inline-flex min-h-11 items-center gap-2 rounded-full bg-white/10 px-4 text-xs font-bold disabled:opacity-35"
+                        >
+                            <Lightbulb className="size-4" />
+                            {torchEnabled ? 'Apagar luz' : 'Encender luz'}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={capture}
+                            disabled={!ready}
+                            className="mx-auto grid size-18 place-items-center rounded-full border-4 border-white bg-amber-500 shadow-lg disabled:opacity-40"
+                            aria-label="Tomar fotografía"
+                        >
+                            <span className="size-12 rounded-full border border-amber-700/30 bg-amber-400" />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => void focus()}
+                            disabled={!ready}
+                            className="mx-auto inline-flex min-h-11 items-center gap-2 rounded-full bg-white/10 px-4 text-xs font-bold disabled:opacity-35"
+                        >
+                            <Focus className="size-4" />
+                            Enfocar
+                        </button>
+                    </div>
+                </footer>
+            )}
         </div>
     );
 }
@@ -286,6 +739,9 @@ export default function CreateAffiliation({
     const [submitting, setSubmitting] = useState(false);
     const [notice, setNotice] = useState<string | null>(null);
     const [folio, setFolio] = useState<string | null>(null);
+    const [cameraTarget, setCameraTarget] = useState<
+        'ine_front' | 'ine_back' | 'profile_photo' | null
+    >(null);
 
     const updateValue = (name: keyof FormValues, value: string | boolean) => {
         setValues((current) => ({ ...current, [name]: value }));
@@ -369,6 +825,108 @@ export default function CreateAffiliation({
         }
     };
 
+    const validateStepTwo = (): boolean => {
+        const nextErrors: ApiErrors = {};
+
+        stepTwoRequiredFields.forEach((field) => {
+            const value = values[field];
+
+            if (typeof value === 'string' && value.trim() === '') {
+                nextErrors[field] = [
+                    `El campo ${fieldLabels[field] ?? field} es obligatorio.`,
+                ];
+            }
+        });
+
+        if (
+            values.curp &&
+            !/^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d$/.test(values.curp)
+        ) {
+            nextErrors.curp = [
+                'La CURP debe contener 18 caracteres y tener un formato válido.',
+            ];
+        }
+
+        if (values.postal_code && !/^\d{5}$/.test(values.postal_code)) {
+            nextErrors.postal_code = [
+                'El código postal debe contener 5 números.',
+            ];
+        }
+
+        if (values.email && !/^\S+@\S+\.\S+$/.test(values.email)) {
+            nextErrors.email = ['Escribe un correo electrónico válido.'];
+        }
+
+        if (Object.keys(nextErrors).length > 0) {
+            setErrors(nextErrors);
+            setNotice(
+                `Faltan ${Object.keys(nextErrors).length} campos por revisar. Los marcamos en rojo.`,
+            );
+            setStep(2);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            return false;
+        }
+
+        return true;
+    };
+
+    const goToConfirmation = () => {
+        if (!validateStepTwo()) {
+            return;
+        }
+
+        if (!values.signature_name.trim()) {
+            updateValue(
+                'signature_name',
+                [
+                    values.first_name,
+                    values.paternal_last_name,
+                    values.maternal_last_name,
+                ]
+                    .filter(Boolean)
+                    .join(' '),
+            );
+        }
+
+        setNotice(null);
+        setStep(3);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const stepForServerErrors = (serverErrors: ApiErrors): 1 | 2 | 3 => {
+        const keys = Object.keys(serverErrors);
+
+        if (keys.some((key) => ['ine_front', 'ine_back'].includes(key))) {
+            return 1;
+        }
+
+        if (
+            keys.some((key) =>
+                stepTwoRequiredFields.includes(key as keyof FormValues),
+            )
+        ) {
+            return 2;
+        }
+
+        return 3;
+    };
+
+    const handleCameraCapture = (file: File) => {
+        if (cameraTarget === 'ine_front') {
+            setIneFront(file);
+            setErrors((current) => ({ ...current, ine_front: [] }));
+        } else if (cameraTarget === 'ine_back') {
+            setIneBack(file);
+            setErrors((current) => ({ ...current, ine_back: [] }));
+        } else if (cameraTarget === 'profile_photo') {
+            setProfilePhoto(file);
+            setErrors((current) => ({ ...current, profile_photo: [] }));
+        }
+
+        setCameraTarget(null);
+    };
+
     const submit = async (event: FormEvent) => {
         event.preventDefault();
 
@@ -425,8 +983,15 @@ export default function CreateAffiliation({
             };
 
             if (!response.ok) {
-                setErrors(data.errors ?? {});
-                setNotice(data.message);
+                const serverErrors = data.errors ?? {};
+                setErrors(serverErrors);
+                setStep(stepForServerErrors(serverErrors));
+                setNotice(
+                    Object.keys(serverErrors).length > 0
+                        ? `No se guardó la solicitud. Revisa los ${Object.keys(serverErrors).length} campos marcados en rojo.`
+                        : data.message,
+                );
+                window.scrollTo({ top: 0, behavior: 'smooth' });
 
                 return;
             }
@@ -481,6 +1046,20 @@ export default function CreateAffiliation({
     return (
         <>
             <Head title="Registro de afiliación" />
+            {cameraTarget && (
+                <CameraCapture
+                    title={
+                        cameraTarget === 'ine_front'
+                            ? 'Frente de la INE'
+                            : cameraTarget === 'ine_back'
+                              ? 'Reverso de la INE'
+                              : 'Foto del afiliado'
+                    }
+                    documentMode={cameraTarget !== 'profile_photo'}
+                    onCapture={handleCameraCapture}
+                    onClose={() => setCameraTarget(null)}
+                />
+            )}
             <div
                 className={`${administrative ? 'min-h-full rounded-xl' : 'min-h-screen'} bg-[#f5f1e8] text-stone-900`}
             >
@@ -607,6 +1186,9 @@ export default function CreateAffiliation({
                                             help="Asegúrate de que nombre, domicilio y CURP sean legibles."
                                             file={ineFront}
                                             onChange={setIneFront}
+                                            onOpenCamera={() =>
+                                                setCameraTarget('ine_front')
+                                            }
                                             error={errors.ine_front?.[0]}
                                         />
                                         <UploadCard
@@ -614,6 +1196,9 @@ export default function CreateAffiliation({
                                             help="Incluye toda la credencial dentro del encuadre."
                                             file={ineBack}
                                             onChange={setIneBack}
+                                            onOpenCamera={() =>
+                                                setCameraTarget('ine_back')
+                                            }
                                             error={errors.ine_back?.[0]}
                                         />
                                     </div>
@@ -963,7 +1548,7 @@ export default function CreateAffiliation({
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => setStep(3)}
+                                        onClick={goToConfirmation}
                                         className="inline-flex h-12 items-center gap-2 rounded-xl bg-stone-900 px-6 text-sm font-black text-white hover:bg-stone-800"
                                     >
                                         Continuar
@@ -994,6 +1579,9 @@ export default function CreateAffiliation({
                                             help="Fotografía reciente, de frente y con el rostro visible."
                                             file={profilePhoto}
                                             onChange={setProfilePhoto}
+                                            onOpenCamera={() =>
+                                                setCameraTarget('profile_photo')
+                                            }
                                             required={false}
                                             error={errors.profile_photo?.[0]}
                                         />

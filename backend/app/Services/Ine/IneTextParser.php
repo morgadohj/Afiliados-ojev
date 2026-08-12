@@ -53,15 +53,15 @@ class IneTextParser
         }
 
         $nameLines = $this->linesBetween($lines, 'NOMBRE', ['DOMICILIO', 'CLAVE DE ELECTOR', 'CURP']);
-        $nameLines = array_values(array_filter(array_map($this->cleanPersonName(...), $nameLines)));
-        if (count($nameLines) >= 3) {
-            $fields['paternal_last_name'] = $this->field($nameLines[0], 0.76);
-            $fields['maternal_last_name'] = $this->field($nameLines[1], 0.76);
-            $fields['first_name'] = $this->field(implode(' ', array_slice($nameLines, 2)), 0.76);
-        } elseif (count($nameLines) === 2) {
-            $fields['paternal_last_name'] = $this->field($nameLines[0], 0.58);
-            $fields['first_name'] = $this->field($nameLines[1], 0.58);
+        $nameFields = $this->nameFieldsFromLines($nameLines, $curp, 0.76);
+
+        if (! isset($nameFields['first_name'], $nameFields['paternal_last_name'])) {
+            $fallbackLines = $this->nameLinesBeforeAddress($lines);
+            $fallbackFields = $this->nameFieldsFromLines($fallbackLines, $curp, 0.62);
+            $nameFields = [...$fallbackFields, ...$nameFields];
         }
+
+        $fields = [...$fields, ...$nameFields];
 
         $addressLines = $this->linesBetween(
             $lines,
@@ -188,6 +188,112 @@ class IneTextParser
     {
         return preg_match('/^(INSTITUTO|NACIONAL|ELECTORAL|CREDENCIAL|PARA VOTAR|MEXICO|SEXO|VIGENCIA)$/', $line) === 1
             || $this->containsLabel($line, 'FECHA DE NACIMIENTO');
+    }
+
+    /**
+     * @return array<string, array{value: string, confidence: float, source: string}>
+     */
+    private function nameFieldsFromLines(array $lines, ?string $curp, float $confidence): array
+    {
+        $nameLines = array_values(array_filter(
+            array_map($this->cleanPersonName(...), $lines),
+            fn (string $line): bool => $line !== '' && ! $this->isNameNoise($line),
+        ));
+
+        if (count($nameLines) >= 3) {
+            return [
+                'paternal_last_name' => $this->field($nameLines[0], $confidence),
+                'maternal_last_name' => $this->field($nameLines[1], $confidence),
+                'first_name' => $this->field(implode(' ', array_slice($nameLines, 2)), $confidence),
+            ];
+        }
+
+        if (count($nameLines) === 2) {
+            $surnameParts = preg_split('/\s+/', $nameLines[0]) ?: [];
+            if ($curp !== null && count($surnameParts) >= 2) {
+                $maternalIndex = $this->tokenIndexWithInitial($surnameParts, $curp[2], 1);
+                if ($maternalIndex !== null) {
+                    return [
+                        'paternal_last_name' => $this->field(implode(' ', array_slice($surnameParts, 0, $maternalIndex)), $confidence),
+                        'maternal_last_name' => $this->field(implode(' ', array_slice($surnameParts, $maternalIndex)), $confidence),
+                        'first_name' => $this->field($nameLines[1], $confidence),
+                    ];
+                }
+            }
+
+            return [
+                'paternal_last_name' => $this->field($nameLines[0], $confidence - 0.12),
+                'first_name' => $this->field($nameLines[1], $confidence - 0.12),
+            ];
+        }
+
+        if (count($nameLines) !== 1 || $curp === null) {
+            return [];
+        }
+
+        $tokens = preg_split('/\s+/', $nameLines[0]) ?: [];
+        if (count($tokens) < 3 || ! str_starts_with($tokens[0], $curp[0])) {
+            return [];
+        }
+
+        $maternalIndex = $this->tokenIndexWithInitial($tokens, $curp[2], 1);
+        $givenNameIndex = $maternalIndex === null
+            ? null
+            : $this->tokenIndexWithInitial($tokens, $curp[3], $maternalIndex + 1);
+
+        if ($maternalIndex === null || $givenNameIndex === null) {
+            return [];
+        }
+
+        return [
+            'paternal_last_name' => $this->field(implode(' ', array_slice($tokens, 0, $maternalIndex)), $confidence - 0.12),
+            'maternal_last_name' => $this->field(implode(' ', array_slice($tokens, $maternalIndex, $givenNameIndex - $maternalIndex)), $confidence - 0.12),
+            'first_name' => $this->field(implode(' ', array_slice($tokens, $givenNameIndex)), $confidence - 0.12),
+        ];
+    }
+
+    private function tokenIndexWithInitial(array $tokens, string $initial, int $start): ?int
+    {
+        for ($index = $start; $index < count($tokens); $index++) {
+            if (str_starts_with($tokens[$index], $initial)) {
+                return $index;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Recover the name block when OCR misses the small NOMBRE label. On current
+     * INE layouts, the name is immediately before the DOMICILIO block.
+     */
+    private function nameLinesBeforeAddress(array $lines): array
+    {
+        foreach ($lines as $index => $line) {
+            if (! $this->containsLabel($line, 'DOMICILIO')) {
+                continue;
+            }
+
+            $candidates = array_slice($lines, max(0, $index - 6), min(6, $index));
+            $candidates = array_values(array_filter(
+                $candidates,
+                fn (string $candidate): bool => preg_match('/\d/', $candidate) !== 1
+                    && ! $this->isNameNoise($this->cleanPersonName($candidate)),
+            ));
+
+            return array_slice($candidates, -3);
+        }
+
+        return [];
+    }
+
+    private function isNameNoise(string $line): bool
+    {
+        return $line === ''
+            || preg_match('/^(?:INSTITUTO(?: NACIONAL)?(?: ELECTORAL)?|NACIONAL ELECTORAL|CREDENCIAL(?: PARA VOTAR)?|PARA VOTAR|ESTADOS UNIDOS MEXICANOS|MEXICO|NOMBRE|SEXO|HOMBRE|MUJER|VIGENCIA)$/', $line) === 1
+            || $this->containsLabel($line, 'FECHA DE NACIMIENTO')
+            || $this->containsLabel($line, 'CLAVE DE ELECTOR')
+            || $this->containsLabel($line, 'CURP');
     }
 
     private function extractCurp(array $lines): ?string

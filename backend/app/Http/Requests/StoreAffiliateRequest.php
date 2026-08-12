@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests;
 
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class StoreAffiliateRequest extends FormRequest
@@ -57,11 +59,45 @@ class StoreAffiliateRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'required' => 'El campo :attribute es obligatorio.',
+            'email' => 'Escribe un correo electrónico válido.',
+            'digits' => 'El campo :attribute debe contener :digits números.',
             'curp.regex' => 'La CURP debe contener 18 caracteres y tener un formato válido.',
             'curp.unique' => 'Ya existe una solicitud registrada con esta CURP.',
             'consent.accepted' => 'Debes aceptar la declaración de afiliación.',
             'ine_front.required' => 'La fotografía frontal de la INE es obligatoria.',
             'ine_back.required' => 'La fotografía posterior de la INE es obligatoria.',
         ];
+    }
+
+    public function attributes(): array
+    {
+        return [
+            'first_name' => 'nombre(s)',
+            'paternal_last_name' => 'apellido paterno',
+            'curp' => 'CURP',
+            'birth_date' => 'fecha de nacimiento',
+            'address_street' => 'calle y número',
+            'neighborhood' => 'colonia',
+            'locality' => 'localidad',
+            'municipality' => 'municipio',
+            'postal_code' => 'código postal',
+            'mobile_phone' => 'teléfono celular',
+            'email' => 'correo electrónico',
+            'occupation' => 'ocupación u oficio',
+            'oje_v_branch' => 'delegación o grupo filial OJEV',
+            'signature_name' => 'nombre completo para confirmación',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        Log::warning('Affiliate submission rejected by validation', [
+            'route' => $this->route()?->getName(),
+            'user_id' => $this->user()?->id,
+            'error_fields' => array_keys($validator->errors()->toArray()),
+        ]);
+
+        parent::failedValidation($validator);
     }
 }

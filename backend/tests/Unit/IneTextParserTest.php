@@ -65,3 +65,48 @@ it('combines complementary readings from different Tesseract layout modes', func
         ->and($result['fields']['first_name']['value'])->toBe('JUAN CARLOS')
         ->and($result['fields']['paternal_last_name']['value'])->toBe('GOMEZ');
 });
+
+it('recovers the name block when the small NOMBRE label is not recognized', function () {
+    $result = app(IneTextParser::class)->parse(<<<'TEXT'
+        INSTITUTO NACIONAL ELECTORAL
+        CREDENCIAL PARA VOTAR
+        GOMEZ
+        MARTINEZ
+        JUAN CARLOS
+        DOMICILIO
+        CALLE PRINCIPAL 123
+        CURP GOMJ900101HVZMRS09
+        TEXT);
+
+    expect($result['fields']['first_name']['value'])->toBe('JUAN CARLOS')
+        ->and($result['fields']['paternal_last_name']['value'])->toBe('GOMEZ')
+        ->and($result['fields']['maternal_last_name']['value'])->toBe('MARTINEZ');
+});
+
+it('splits a name that OCR returns on one line using CURP initials', function () {
+    $result = app(IneTextParser::class)->parse(<<<'TEXT'
+        NOMBRE GOMEZ MARTINEZ JUAN CARLOS
+        DOMICILIO
+        CALLE PRINCIPAL 123
+        CURP GOMJ900101HVZMRS09
+        TEXT);
+
+    expect($result['fields']['first_name']['value'])->toBe('JUAN CARLOS')
+        ->and($result['fields']['paternal_last_name']['value'])->toBe('GOMEZ')
+        ->and($result['fields']['maternal_last_name']['value'])->toBe('MARTINEZ');
+});
+
+it('separates both surnames when OCR groups them on one line', function () {
+    $result = app(IneTextParser::class)->parse(<<<'TEXT'
+        NOMBRE
+        GOMEZ MARTINEZ
+        JUAN CARLOS
+        DOMICILIO
+        CALLE PRINCIPAL 123
+        CURP GOMJ900101HVZMRS09
+        TEXT);
+
+    expect($result['fields']['first_name']['value'])->toBe('JUAN CARLOS')
+        ->and($result['fields']['paternal_last_name']['value'])->toBe('GOMEZ')
+        ->and($result['fields']['maternal_last_name']['value'])->toBe('MARTINEZ');
+});
