@@ -221,6 +221,7 @@ function UploadCard({
     required = true,
     error,
     onOpenCamera,
+    captureMode = 'environment',
 }: {
     title: string;
     help: string;
@@ -229,8 +230,10 @@ function UploadCard({
     required?: boolean;
     error?: string;
     onOpenCamera?: () => void;
+    captureMode?: 'environment' | 'user';
 }) {
-    const inputRef = useRef<HTMLInputElement>(null);
+    const cameraInputRef = useRef<HTMLInputElement>(null);
+    const galleryInputRef = useRef<HTMLInputElement>(null);
     const preview = useMemo(
         () => (file ? URL.createObjectURL(file) : null),
         [file],
@@ -240,13 +243,7 @@ function UploadCard({
         <div>
             <button
                 type="button"
-                onClick={() => {
-                    if (onOpenCamera) {
-                        onOpenCamera();
-                    } else {
-                        inputRef.current?.click();
-                    }
-                }}
+                onClick={() => cameraInputRef.current?.click()}
                 className={`group relative flex min-h-56 w-full overflow-hidden rounded-2xl border-2 border-dashed bg-stone-50 text-left transition hover:border-amber-500 hover:bg-amber-50/50 ${
                     error ? 'border-red-400' : 'border-stone-250'
                 }`}
@@ -292,27 +289,52 @@ function UploadCard({
                         </span>
                         <span className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-amber-800">
                             <Camera className="size-3.5" />
-                            Abrir cámara con enfoque
+                            Tomar foto con autofocus
                         </span>
                     </span>
                 )}
             </button>
             <input
-                ref={inputRef}
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture={captureMode}
+                className="hidden"
+                onChange={(event) => {
+                    onChange(event.target.files?.[0] ?? null);
+                    event.currentTarget.value = '';
+                }}
+            />
+            <input
+                ref={galleryInputRef}
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
-                capture="environment"
                 className="hidden"
-                onChange={(event) => onChange(event.target.files?.[0] ?? null)}
+                onChange={(event) => {
+                    onChange(event.target.files?.[0] ?? null);
+                    event.currentTarget.value = '';
+                }}
             />
-            <button
-                type="button"
-                onClick={() => inputRef.current?.click()}
-                className="mt-3 inline-flex items-center gap-2 text-xs font-bold text-stone-500 underline decoration-stone-300 underline-offset-4 hover:text-amber-800"
-            >
-                <Images className="size-3.5" />
-                Elegir una foto existente
-            </button>
+            <div className="mt-3 flex flex-wrap gap-x-5 gap-y-3">
+                <button
+                    type="button"
+                    onClick={() => galleryInputRef.current?.click()}
+                    className="inline-flex items-center gap-2 text-xs font-bold text-stone-500 underline decoration-stone-300 underline-offset-4 hover:text-amber-800"
+                >
+                    <Images className="size-3.5" />
+                    Elegir una foto existente
+                </button>
+                {onOpenCamera && (
+                    <button
+                        type="button"
+                        onClick={onOpenCamera}
+                        className="inline-flex items-center gap-2 text-xs font-bold text-stone-500 underline decoration-stone-300 underline-offset-4 hover:text-amber-800"
+                    >
+                        <ScanLine className="size-3.5" />
+                        Usar cámara guiada
+                    </button>
+                )}
+            </div>
             {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
         </div>
     );
@@ -352,6 +374,8 @@ function CameraCapture({
     const [ready, setReady] = useState(false);
     const [torchAvailable, setTorchAvailable] = useState(false);
     const [torchEnabled, setTorchEnabled] = useState(false);
+    const [continuousFocusAvailable, setContinuousFocusAvailable] =
+        useState(false);
     const [lightLevel, setLightLevel] = useState<
         'checking' | 'low' | 'good' | 'high'
     >('checking');
@@ -382,6 +406,7 @@ function CameraCapture({
     useEffect(() => {
         let active = true;
         let lightTimer: number | undefined;
+        let focusTimer: number | undefined;
 
         const startCamera = async () => {
             if (!navigator.mediaDevices?.getUserMedia) {
@@ -413,6 +438,9 @@ function CameraCapture({
                 streamRef.current = stream;
                 const track = stream.getVideoTracks()[0];
                 const capabilities = capabilitiesFor(track);
+                const supportsContinuousFocus =
+                    capabilities.focusMode?.includes('continuous') ?? false;
+                setContinuousFocusAvailable(supportsContinuousFocus);
                 setTorchAvailable(
                     Array.isArray(capabilities.torch)
                         ? capabilities.torch.includes(true)
@@ -439,6 +467,21 @@ function CameraCapture({
                     } catch {
                         // Keep the camera available when a device rejects optional controls.
                     }
+                }
+
+                if (supportsContinuousFocus) {
+                    focusTimer = window.setInterval(() => {
+                        void track
+                            .applyConstraints({
+                                advanced: [
+                                    { focusMode: 'continuous' },
+                                ] as CameraConstraintSet[] as MediaTrackConstraintSet[],
+                            })
+                            .catch(() => {
+                                setContinuousFocusAvailable(false);
+                                window.clearInterval(focusTimer);
+                            });
+                    }, 1800);
                 }
 
                 if (videoRef.current) {
@@ -500,6 +543,10 @@ function CameraCapture({
 
             if (lightTimer) {
                 window.clearInterval(lightTimer);
+            }
+
+            if (focusTimer) {
+                window.clearInterval(focusTimer);
             }
 
             streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -682,6 +729,13 @@ function CameraCapture({
                         className={`text-center text-xs font-bold ${lightLevel === 'good' ? 'text-emerald-300' : 'text-amber-300'}`}
                     >
                         {lightMessage}
+                    </p>
+                    <p
+                        className={`text-center text-xs ${continuousFocusAvailable ? 'text-emerald-300' : 'text-stone-300'}`}
+                    >
+                        {continuousFocusAvailable
+                            ? 'Autofocus continuo activo.'
+                            : 'El navegador no permite controlar el autofocus; usa la cámara nativa para mejor enfoque.'}
                     </p>
                     <div className="grid grid-cols-3 items-center">
                         <button
@@ -1186,6 +1240,7 @@ export default function CreateAffiliation({
                                             help="Asegúrate de que nombre, domicilio y CURP sean legibles."
                                             file={ineFront}
                                             onChange={setIneFront}
+                                            captureMode="environment"
                                             onOpenCamera={() =>
                                                 setCameraTarget('ine_front')
                                             }
@@ -1196,6 +1251,7 @@ export default function CreateAffiliation({
                                             help="Incluye toda la credencial dentro del encuadre."
                                             file={ineBack}
                                             onChange={setIneBack}
+                                            captureMode="environment"
                                             onOpenCamera={() =>
                                                 setCameraTarget('ine_back')
                                             }
@@ -1579,6 +1635,7 @@ export default function CreateAffiliation({
                                             help="Fotografía reciente, de frente y con el rostro visible."
                                             file={profilePhoto}
                                             onChange={setProfilePhoto}
+                                            captureMode="user"
                                             onOpenCamera={() =>
                                                 setCameraTarget('profile_photo')
                                             }
