@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreAffiliateRequest;
 use App\Models\Affiliate;
 use App\Services\Documents\PrivateDocumentStorage;
-use App\Services\Ine\TesseractIneExtractor;
+use App\Services\Ine\IneExtractor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -14,21 +14,21 @@ use Inertia\Response;
 
 class AffiliationController extends Controller
 {
-    public function create(TesseractIneExtractor $extractor): Response
+    public function create(IneExtractor $extractor): Response
     {
         return Inertia::render('affiliation/create', [
             'ocrAvailable' => $extractor->available(),
         ]);
     }
 
-    public function createAdministrative(TesseractIneExtractor $extractor): Response
+    public function createAdministrative(IneExtractor $extractor): Response
     {
         return Inertia::render('admin/affiliation/create', [
             'ocrAvailable' => $extractor->available(),
         ]);
     }
 
-    public function extractIne(Request $request, TesseractIneExtractor $extractor): JsonResponse
+    public function extractIne(Request $request, IneExtractor $extractor): JsonResponse
     {
         $validated = $request->validate([
             'ine_front' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
@@ -37,7 +37,7 @@ class AffiliationController extends Controller
 
         if (! $extractor->available()) {
             return response()->json([
-                'message' => 'El motor OCR local no está disponible. Puedes continuar capturando los datos manualmente.',
+                'message' => 'El reconocimiento de INE no está disponible. Puedes continuar capturando los datos manualmente.',
                 'fields' => [],
                 'warnings' => ['OCR no disponible en este entorno.'],
             ], 503);
