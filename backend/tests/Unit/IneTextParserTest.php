@@ -149,6 +149,27 @@ it('prefers the OCR name reading whose initials agree with a CURP found in anoth
         ->and($result['fields']['maternal_last_name']['value'])->toBe('AYUSO');
 });
 
+it('never combines partial surnames with a garbage given name from another OCR pass', function () {
+    $parser = app(IneTextParser::class);
+    $result = $parser->merge([
+        $parser->parse(<<<'TEXT'
+            NOMBRE
+            DEI N
+            ACE
+            WIK OO MU MT DAP A I HITE HI
+            DOMICILIO
+            CURP DEAN910525MVZLYL00
+            TEXT),
+        $parser->parse("CURP DEAN910525MVZLYL00\n"),
+    ]);
+
+    expect($result['fields'])->not->toHaveKeys([
+        'first_name',
+        'paternal_last_name',
+        'maternal_last_name',
+    ])->and($result['fields']['curp']['value'])->toBe('DEAN910525MVZLYL00');
+});
+
 it('keeps safe surname matches when one given-name initial is unreadable', function () {
     $result = app(IneTextParser::class)->parse(<<<'TEXT'
         NOMBRE

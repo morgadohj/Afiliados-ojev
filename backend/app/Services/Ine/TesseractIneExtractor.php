@@ -110,13 +110,16 @@ class TesseractIneExtractor
             return;
         }
 
-        $focusedText = $this->recognizeFocusedName($imagePath);
+        $focusedText = $this->recognizeFocusedName($imagePath, $curp);
         if ($focusedText !== null) {
             // The CURP initials validate and order the three photographed
             // lines, preventing labels such as SEXO from becoming a surname.
             $candidate = $this->parser->parse($focusedText."\nCURP {$curp}");
-            if (isset($candidate['fields']['first_name'])
-                || isset($candidate['fields']['paternal_last_name'])) {
+            if (isset(
+                $candidate['fields']['first_name'],
+                $candidate['fields']['paternal_last_name'],
+                $candidate['fields']['maternal_last_name'],
+            )) {
                 $results[] = $candidate;
             }
         }
@@ -127,7 +130,7 @@ class TesseractIneExtractor
      * the three small identity lines independently. Faces and security marks
      * otherwise cause the full-card layout modes to omit these lines.
      */
-    private function recognizeFocusedName(string $imagePath): ?string
+    private function recognizeFocusedName(string $imagePath, string $curp): ?string
     {
         $layout = $this->recognizeLayout($imagePath);
         if ($layout === null) {
@@ -166,11 +169,6 @@ class TesseractIneExtractor
                 '+repage',
                 '-resize',
                 '400%',
-                '-normalize',
-                '-contrast-stretch',
-                '2%x2%',
-                '-adaptive-sharpen',
-                '0x1',
                 $blockPath,
             ]);
             $blockProcess->setTimeout(20);
@@ -185,57 +183,70 @@ class TesseractIneExtractor
             $labelTop = ($top - $blockY) * $scale;
             $lineX = max(0, (int) round(($left - $blockX - ($width * 0.28)) * $scale));
             $lineDefinitions = [
-                [0.58, 2.3, 1.1],
-                [1.28, 2.3, 1.1],
-                [2.44, 3.5, 1.2],
+                [0.58, 2.3, 1.1, $curp[0], false],
+                [1.28, 2.3, 1.1, $curp[2], false],
+                [2.44, 3.5, 1.2, $curp[3], true],
             ];
             $readings = [];
 
-            foreach ($lineDefinitions as $index => [$topFactor, $widthFactor, $heightFactor]) {
-                $lineTop = max(0, (int) round($labelTop + ($scaledHeight * $topFactor)));
+            foreach ($lineDefinitions as $index => [$topFactor, $widthFactor, $heightFactor, $initial, $givenName]) {
                 $lineWidth = min(
                     ($blockWidth * $scale) - $lineX,
                     (int) round($width * $scale * $widthFactor),
                 );
-                $lineHeight = min(
-                    ($blockHeight * $scale) - $lineTop,
-                    (int) round($scaledHeight * $heightFactor),
-                );
+                $candidates = [];
 
-                if ($lineWidth < 40 || $lineHeight < 12) {
-                    continue;
+                foreach ([-0.18, 0.0, 0.18] as $offset) {
+                    $lineTop = max(0, (int) round(
+                        $labelTop + ($scaledHeight * ($topFactor + $offset)),
+                    ));
+                    $lineHeight = min(
+                        ($blockHeight * $scale) - $lineTop,
+                        (int) round($scaledHeight * $heightFactor),
+                    );
+
+                    if ($lineWidth < 40 || $lineHeight < 12) {
+                        continue;
+                    }
+
+                    $offsetLabel = str_replace('.', '-', (string) $offset);
+                    $linePath = $temporaryBase.'-line-'.$index.'-'.$offsetLabel.'.png';
+                    $linePaths[] = $linePath;
+                    $lineProcess = new Process([
+                        (string) config('services.ine_ocr.imagemagick_path', 'convert'),
+                        $blockPath,
+                        '-crop',
+                        "{$lineWidth}x{$lineHeight}+{$lineX}+{$lineTop}",
+                        '+repage',
+                        '-colorspace',
+                        'Gray',
+                        '-contrast-stretch',
+                        '1%x1%',
+                        '-sharpen',
+                        '0x1',
+                        '-resize',
+                        '200%',
+                        '-bordercolor',
+                        'white',
+                        '-border',
+                        '20',
+                        $linePath,
+                    ]);
+                    $lineProcess->setTimeout(15);
+                    $lineProcess->run();
+
+                    if (! $lineProcess->isSuccessful() || ! is_file($linePath)) {
+                        continue;
+                    }
+
+                    $reading = $this->recognizeNameLine($linePath, $initial, $givenName);
+                    if ($reading !== null) {
+                        $candidates[] = $reading;
+                    }
                 }
 
-                $linePath = $temporaryBase.'-line-'.$index.'.png';
-                $linePaths[] = $linePath;
-                $lineProcess = new Process([
-                    (string) config('services.ine_ocr.imagemagick_path', 'convert'),
-                    $blockPath,
-                    '-crop',
-                    "{$lineWidth}x{$lineHeight}+{$lineX}+{$lineTop}",
-                    '+repage',
-                    '-colorspace',
-                    'Gray',
-                    '-contrast-stretch',
-                    '1%x1%',
-                    '-sharpen',
-                    '0x1',
-                    '-resize',
-                    '200%',
-                    '-bordercolor',
-                    'white',
-                    '-border',
-                    '20',
-                    $linePath,
-                ]);
-                $lineProcess->setTimeout(15);
-                $lineProcess->run();
-
-                if (! $lineProcess->isSuccessful() || ! is_file($linePath)) {
-                    continue;
-                }
-
-                $reading = $this->recognizeNameLine($linePath);
+                usort($candidates, fn (array $left, array $right): int => $right['score'] <=> $left['score']);
+                $reading = $candidates[0]['text'] ?? null;
                 if ($reading !== null) {
                     $readings[] = $reading;
                 }
@@ -309,20 +320,45 @@ class TesseractIneExtractor
         return ['page_width' => $pageWidth, 'page_height' => $pageHeight, 'label' => $label];
     }
 
-    private function recognizeNameLine(string $imagePath): ?string
+    /** @return array{text: string, score: float}|null */
+    private function recognizeNameLine(string $imagePath, string $initial, bool $givenName): ?array
     {
+        $best = null;
+
         foreach ([7, 8] as $pageSegmentationMode) {
             $text = trim($this->recognize($imagePath, $pageSegmentationMode));
             $text = mb_strtoupper($text, 'UTF-8');
             $text = trim(preg_replace('/[^A-ZÑ\-\' ]/u', ' ', $text) ?? '');
             $text = trim(preg_replace('/\s+/', ' ', $text) ?? '');
 
-            if (mb_strlen($text) >= 3 && mb_strlen($text) <= 80) {
-                return $text;
+            if (mb_strlen($text) < 3 || mb_strlen($text) > 60) {
+                continue;
+            }
+
+            $tokens = preg_split('/\s+/', $text) ?: [];
+            if ($tokens === [] || count($tokens) > 5
+                || collect($tokens)->contains(fn (string $token): bool => mb_strlen($token) === 1 && $token !== 'Y')) {
+                continue;
+            }
+
+            $matchesInitial = $givenName
+                ? collect($tokens)->contains(fn (string $token): bool => str_starts_with($token, $initial))
+                : str_starts_with($text, $initial);
+            if (! $matchesInitial) {
+                continue;
+            }
+
+            $score = mb_strlen(str_replace(' ', '', $text)) - ((count($tokens) - 1) * 1.5);
+            if (str_starts_with($text, $initial)) {
+                $score += 2;
+            }
+
+            if ($best === null || $score > $best['score']) {
+                $best = ['text' => $text, 'score' => $score];
             }
         }
 
-        return null;
+        return $best;
     }
 
     private function recognize(string $imagePath, int $pageSegmentationMode): string

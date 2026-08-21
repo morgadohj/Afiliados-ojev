@@ -135,6 +135,10 @@ class IneTextParser
             }
         }
 
+        $nameBlock = $sharedCurp === null
+            ? null
+            : $this->bestCoherentNameBlock($results, $sharedCurp);
+
         usort(
             $results,
             function (array $left, array $right) use ($sharedCurp): int {
@@ -162,10 +166,77 @@ class IneTextParser
             }
         }
 
+        if ($sharedCurp !== null) {
+            foreach (['first_name', 'paternal_last_name', 'maternal_last_name'] as $field) {
+                unset($fields[$field]);
+            }
+
+            if ($nameBlock !== null) {
+                $fields = [...$fields, ...$nameBlock];
+            }
+        }
+
         return [
             'fields' => $fields,
             'warnings' => $this->warnings($fields),
         ];
+    }
+
+    /**
+     * Names from separate OCR passes must never be mixed. A complete block is
+     * accepted only when all three values are plausible and agree with the
+     * initials encoded in the CURP.
+     *
+     * @return array<string, array{value: string, confidence: float, source: string}>|null
+     */
+    private function bestCoherentNameBlock(array $results, string $curp): ?array
+    {
+        $best = null;
+        $bestConfidence = -1.0;
+        $nameFields = ['first_name', 'paternal_last_name', 'maternal_last_name'];
+
+        foreach ($results as $result) {
+            $fields = $result['fields'] ?? [];
+            if (! isset(
+                $fields['first_name'],
+                $fields['paternal_last_name'],
+                $fields['maternal_last_name'],
+            ) || $this->curpNameScore($fields, $curp) !== 8) {
+                continue;
+            }
+
+            $plausible = collect($nameFields)->every(function (string $field) use ($fields): bool {
+                $value = $fields[$field]['value'] ?? null;
+
+                return is_string($value) && $this->plausiblePersonName($value);
+            });
+            if (! $plausible) {
+                continue;
+            }
+
+            $confidence = array_sum(array_map(
+                fn (string $field): float => (float) ($fields[$field]['confidence'] ?? 0),
+                $nameFields,
+            ));
+            if ($confidence > $bestConfidence) {
+                $best = array_intersect_key($fields, array_flip($nameFields));
+                $bestConfidence = $confidence;
+            }
+        }
+
+        return $best;
+    }
+
+    private function plausiblePersonName(string $value): bool
+    {
+        $tokens = preg_split('/\s+/', trim($value)) ?: [];
+
+        return $tokens !== []
+            && count($tokens) <= 5
+            && collect($tokens)->every(
+                fn (string $token): bool => preg_match('/^[A-ZÑ\-\']{2,}$/u', $token) === 1
+                    || $token === 'Y',
+            );
     }
 
     private function normalize(string $text): string
