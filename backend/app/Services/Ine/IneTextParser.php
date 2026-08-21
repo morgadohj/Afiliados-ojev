@@ -111,17 +111,46 @@ class IneTextParser
             'state' => 1,
         ];
 
-        return array_sum(array_map(
+        $score = array_sum(array_map(
             fn (string $field): int => isset($fields[$field]) ? $weights[$field] : 0,
             array_keys($weights),
         ));
+
+        $curp = $fields['curp']['value'] ?? null;
+        if (is_string($curp) && strlen($curp) === 18) {
+            $score += $this->curpNameScore($fields, $curp);
+        }
+
+        return $score;
     }
 
     public function merge(array $results): array
     {
+        $sharedCurp = null;
+        foreach ($results as $result) {
+            $candidate = $result['fields']['curp']['value'] ?? null;
+            if (is_string($candidate) && strlen($candidate) === 18) {
+                $sharedCurp = $candidate;
+                break;
+            }
+        }
+
         usort(
             $results,
-            fn (array $left, array $right): int => $this->score($right['fields']) <=> $this->score($left['fields']),
+            function (array $left, array $right) use ($sharedCurp): int {
+                $score = function (array $result) use ($sharedCurp): int {
+                    $fields = $result['fields'];
+                    $score = $this->score($fields);
+
+                    if ($sharedCurp !== null && ! isset($fields['curp'])) {
+                        $score += $this->curpNameScore($fields, $sharedCurp);
+                    }
+
+                    return $score;
+                };
+
+                return $score($right) <=> $score($left);
+            },
         );
 
         $fields = $results[0]['fields'] ?? [];
@@ -172,7 +201,7 @@ class IneTextParser
 
             foreach ($endLabels as $endLabel) {
                 if ($this->containsLabel($line, $endLabel)) {
-                    return array_slice($result, 0, 4);
+                    return array_slice($result, 0, 8);
                 }
             }
 
@@ -181,12 +210,12 @@ class IneTextParser
             }
         }
 
-        return array_slice($result, 0, 4);
+        return array_slice($result, 0, 8);
     }
 
     private function isNoise(string $line): bool
     {
-        return preg_match('/^(INSTITUTO|NACIONAL|ELECTORAL|CREDENCIAL|PARA VOTAR|MEXICO|SEXO|VIGENCIA)$/', $line) === 1
+        return preg_match('/^(INSTITUTO|NACIONAL|ELECTORAL|CREDENCIAL|PARA VOTAR|MEXICO|SEXO(?: [HM])?|GENERO(?: [HM])?|NERO(?: [HM])?|VIGENCIA)$/', $line) === 1
             || $this->containsLabel($line, 'FECHA DE NACIMIENTO');
     }
 
@@ -201,6 +230,15 @@ class IneTextParser
         ));
 
         if (count($nameLines) >= 3) {
+            if ($curp !== null) {
+                $curpMatchedFields = $this->nameFieldsMatchingCurp($nameLines, $curp, $confidence);
+                if ($curpMatchedFields !== []) {
+                    return $curpMatchedFields;
+                }
+
+                return [];
+            }
+
             return [
                 'paternal_last_name' => $this->field($nameLines[0], $confidence),
                 'maternal_last_name' => $this->field($nameLines[1], $confidence),
@@ -264,6 +302,81 @@ class IneTextParser
     }
 
     /**
+     * Tesseract may return the three name lines in visual-column order instead
+     * of reading order. The CURP provides reliable initials for paternal
+     * surname, maternal surname and given name, so use them to restore order.
+     *
+     * @return array<string, array{value: string, confidence: float, source: string}>
+     */
+    private function nameFieldsMatchingCurp(array $nameLines, string $curp, float $confidence): array
+    {
+        foreach ($nameLines as $paternalIndex => $paternal) {
+            if (! $this->startsWithInitial($paternal, $curp[0])) {
+                continue;
+            }
+
+            foreach ($nameLines as $maternalIndex => $maternal) {
+                if ($maternalIndex === $paternalIndex || ! $this->startsWithInitial($maternal, $curp[2])) {
+                    continue;
+                }
+
+                foreach ($nameLines as $givenIndex => $givenName) {
+                    if (in_array($givenIndex, [$paternalIndex, $maternalIndex], true)
+                        || ! $this->givenNameMatchesInitial($givenName, $curp[3])) {
+                        continue;
+                    }
+
+                    return [
+                        'paternal_last_name' => $this->field($paternal, $confidence + 0.08),
+                        'maternal_last_name' => $this->field($maternal, $confidence + 0.08),
+                        'first_name' => $this->field($givenName, $confidence + 0.08),
+                    ];
+                }
+            }
+        }
+
+        return [];
+    }
+
+    private function startsWithInitial(string $value, string $initial): bool
+    {
+        return str_starts_with($value, $initial);
+    }
+
+    private function givenNameMatchesInitial(string $value, string $initial): bool
+    {
+        $tokens = preg_split('/\s+/', $value) ?: [];
+
+        return collect($tokens)->contains(
+            fn (string $token): bool => $this->startsWithInitial($token, $initial),
+        );
+    }
+
+    private function curpNameScore(array $fields, string $curp): int
+    {
+        $checks = [
+            'paternal_last_name' => [$curp[0], 3, false],
+            'maternal_last_name' => [$curp[2], 2, false],
+            'first_name' => [$curp[3], 3, true],
+        ];
+        $score = 0;
+
+        foreach ($checks as $field => [$initial, $weight, $givenName]) {
+            $value = $fields[$field]['value'] ?? null;
+            if (! is_string($value) || $value === '') {
+                continue;
+            }
+
+            $matches = $givenName
+                ? $this->givenNameMatchesInitial($value, $initial)
+                : $this->startsWithInitial($value, $initial);
+            $score += $matches ? $weight : -$weight;
+        }
+
+        return $score;
+    }
+
+    /**
      * Recover the name block when OCR misses the small NOMBRE label. On current
      * INE layouts, the name is immediately before the DOMICILIO block.
      */
@@ -290,7 +403,7 @@ class IneTextParser
     private function isNameNoise(string $line): bool
     {
         return $line === ''
-            || preg_match('/^(?:INSTITUTO(?: NACIONAL)?(?: ELECTORAL)?|NACIONAL ELECTORAL|CREDENCIAL(?: PARA VOTAR)?|PARA VOTAR|ESTADOS UNIDOS MEXICANOS|MEXICO|NOMBRE|SEXO|HOMBRE|MUJER|VIGENCIA)$/', $line) === 1
+            || preg_match('/^(?:INSTITUTO(?: NACIONAL)?(?: ELECTORAL)?|NACIONAL ELECTORAL|CREDENCIAL(?: PARA VOTAR)?|PARA VOTAR|ESTADOS UNIDOS MEXICANOS|MEXICO|NOMBRE|SEXO(?: [HM])?|GENERO(?: [HM])?|NERO(?: [HM])?|HOMBRE|MUJER|VIGENCIA)$/', $line) === 1
             || $this->containsLabel($line, 'FECHA DE NACIMIENTO')
             || $this->containsLabel($line, 'CLAVE DE ELECTOR')
             || $this->containsLabel($line, 'CURP');

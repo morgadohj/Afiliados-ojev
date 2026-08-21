@@ -110,3 +110,41 @@ it('separates both surnames when OCR groups them on one line', function () {
         ->and($result['fields']['paternal_last_name']['value'])->toBe('GOMEZ')
         ->and($result['fields']['maternal_last_name']['value'])->toBe('MARTINEZ');
 });
+
+it('orders name lines with the CURP and ignores sex labels from a vertical Android capture', function () {
+    $result = app(IneTextParser::class)->parse(<<<'TEXT'
+        INSTITUTO NACIONAL ELECTORAL
+        CREDENCIAL PARA VOTAR
+        NOMBRE
+        SEXO M
+        NERO
+        AYUSO
+        DELFIN
+        NELLY GRACIELA
+        DOMICILIO
+        AV MIGUEL ALEMAN 434 DEP 8
+        COL CENTRO 91700
+        VERACRUZ, VER.
+        CLAVE DE ELECTOR DLAYNL91052530M100
+        CURP DEAN910525MVZLYL00
+        TEXT);
+
+    expect($result['fields']['first_name']['value'])->toBe('NELLY GRACIELA')
+        ->and($result['fields']['paternal_last_name']['value'])->toBe('DELFIN')
+        ->and($result['fields']['maternal_last_name']['value'])->toBe('AYUSO')
+        ->and($result['fields']['paternal_last_name']['value'])->not->toContain('SEXO')
+        ->and($result['fields']['maternal_last_name']['value'])->not->toBe('NERO');
+});
+
+it('prefers the OCR name reading whose initials agree with a CURP found in another pass', function () {
+    $parser = app(IneTextParser::class);
+    $result = $parser->merge([
+        $parser->parse("NOMBRE\nAYUSO\nDELFIN\nNELLY GRACIELA\nDOMICILIO\n"),
+        $parser->parse("CURP DEAN910525MVZLYL00\n"),
+        $parser->parse("NOMBRE\nDELFIN\nAYUSO\nNELLY GRACIELA\nDOMICILIO\n"),
+    ]);
+
+    expect($result['fields']['first_name']['value'])->toBe('NELLY GRACIELA')
+        ->and($result['fields']['paternal_last_name']['value'])->toBe('DELFIN')
+        ->and($result['fields']['maternal_last_name']['value'])->toBe('AYUSO');
+});
