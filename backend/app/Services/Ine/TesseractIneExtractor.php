@@ -20,9 +20,13 @@ class TesseractIneExtractor
 
     public function extract(UploadedFile $front, ?UploadedFile $back = null): array
     {
+        $temporaryImages = [];
         $preparedImage = $this->preprocess($front);
+        if ($preparedImage !== null) {
+            $temporaryImages[] = $preparedImage;
+        }
+
         $imagePath = $preparedImage ?? $front->getRealPath();
-        $highContrastImage = null;
 
         try {
             $results = [
@@ -35,16 +39,43 @@ class TesseractIneExtractor
 
             $combined = $this->parser->merge($results);
             if (! isset($combined['fields']['first_name'], $combined['fields']['paternal_last_name'])) {
-                $highContrastImage = $this->preprocess($front, highContrast: true);
-                if ($highContrastImage !== null) {
+                foreach ([90, 270] as $rotation) {
+                    $rotatedImage = $this->preprocess($front, rotation: $rotation);
+                    if ($rotatedImage === null) {
+                        continue;
+                    }
+
+                    $temporaryImages[] = $rotatedImage;
+                    $results[] = $this->parser->parse($this->recognize($rotatedImage, 11));
+                    $combined = $this->parser->merge($results);
+
+                    if (isset($combined['fields']['first_name'], $combined['fields']['paternal_last_name'])) {
+                        break;
+                    }
+                }
+            }
+
+            if (! isset($combined['fields']['first_name'], $combined['fields']['paternal_last_name'])) {
+                foreach ([0, 90, 270] as $rotation) {
+                    $highContrastImage = $this->preprocess($front, highContrast: true, rotation: $rotation);
+                    if ($highContrastImage === null) {
+                        continue;
+                    }
+
+                    $temporaryImages[] = $highContrastImage;
                     $results[] = $this->parser->parse($this->recognize($highContrastImage, 11));
+                    $combined = $this->parser->merge($results);
+
+                    if (isset($combined['fields']['first_name'], $combined['fields']['paternal_last_name'])) {
+                        break;
+                    }
                 }
             }
 
             return $this->parser->merge($results);
         } finally {
-            foreach ([$preparedImage, $highContrastImage] as $temporaryImage) {
-                if ($temporaryImage !== null && is_file($temporaryImage)) {
+            foreach ($temporaryImages as $temporaryImage) {
+                if (is_file($temporaryImage)) {
                     @unlink($temporaryImage);
                 }
             }
@@ -76,7 +107,7 @@ class TesseractIneExtractor
         return $process->getOutput();
     }
 
-    private function preprocess(UploadedFile $file, bool $highContrast = false): ?string
+    private function preprocess(UploadedFile $file, bool $highContrast = false, int $rotation = 0): ?string
     {
         $binary = (string) config('services.ine_ocr.imagemagick_path', 'convert');
         $version = new Process([$binary, '-version']);
@@ -93,7 +124,7 @@ class TesseractIneExtractor
         }
 
         @unlink($temporaryBase);
-        $outputPath = $temporaryBase.($highContrast ? '-contrast' : '').'.png';
+        $outputPath = $temporaryBase.($highContrast ? '-contrast' : '').'-'.$rotation.'.png';
         $arguments = [
             $binary,
             $file->getRealPath().'[0]',
@@ -104,6 +135,10 @@ class TesseractIneExtractor
             '-resize',
             $highContrast ? '3000x3000' : '2400x2400',
         ];
+
+        if ($rotation !== 0) {
+            array_push($arguments, '-background', 'white', '-rotate', (string) $rotation);
+        }
 
         if ($highContrast) {
             array_push(

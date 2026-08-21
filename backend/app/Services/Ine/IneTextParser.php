@@ -310,32 +310,59 @@ class IneTextParser
      */
     private function nameFieldsMatchingCurp(array $nameLines, string $curp, float $confidence): array
     {
-        foreach ($nameLines as $paternalIndex => $paternal) {
-            if (! $this->startsWithInitial($paternal, $curp[0])) {
-                continue;
-            }
+        $bestPartial = [];
+        $bestPartialScore = 0;
 
+        foreach ($nameLines as $paternalIndex => $paternal) {
             foreach ($nameLines as $maternalIndex => $maternal) {
-                if ($maternalIndex === $paternalIndex || ! $this->startsWithInitial($maternal, $curp[2])) {
+                if ($maternalIndex === $paternalIndex) {
                     continue;
                 }
 
                 foreach ($nameLines as $givenIndex => $givenName) {
-                    if (in_array($givenIndex, [$paternalIndex, $maternalIndex], true)
-                        || ! $this->givenNameMatchesInitial($givenName, $curp[3])) {
+                    if (in_array($givenIndex, [$paternalIndex, $maternalIndex], true)) {
                         continue;
                     }
 
-                    return [
-                        'paternal_last_name' => $this->field($paternal, $confidence + 0.08),
-                        'maternal_last_name' => $this->field($maternal, $confidence + 0.08),
-                        'first_name' => $this->field($givenName, $confidence + 0.08),
-                    ];
+                    $paternalMatches = $this->startsWithInitial($paternal, $curp[0]);
+                    $maternalMatches = $this->startsWithInitial($maternal, $curp[2]);
+                    $givenMatches = $this->givenNameMatchesInitial($givenName, $curp[3]);
+                    $matchScore = ($paternalMatches ? 3 : 0)
+                        + ($maternalMatches ? 2 : 0)
+                        + ($givenMatches ? 3 : 0);
+
+                    if ($matchScore === 8) {
+                        return [
+                            'paternal_last_name' => $this->field($paternal, $confidence + 0.08),
+                            'maternal_last_name' => $this->field($maternal, $confidence + 0.08),
+                            'first_name' => $this->field($givenName, $confidence + 0.08),
+                        ];
+                    }
+
+                    if ($matchScore <= $bestPartialScore) {
+                        continue;
+                    }
+
+                    $partial = [];
+                    if ($paternalMatches) {
+                        $partial['paternal_last_name'] = $this->field($paternal, $confidence - 0.08);
+                    }
+
+                    if ($maternalMatches) {
+                        $partial['maternal_last_name'] = $this->field($maternal, $confidence - 0.08);
+                    }
+
+                    if ($givenMatches) {
+                        $partial['first_name'] = $this->field($givenName, $confidence - 0.08);
+                    }
+
+                    $bestPartial = $partial;
+                    $bestPartialScore = $matchScore;
                 }
             }
         }
 
-        return [];
+        return $bestPartialScore >= 3 ? $bestPartial : [];
     }
 
     private function startsWithInitial(string $value, string $initial): bool

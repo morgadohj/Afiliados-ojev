@@ -148,3 +148,19 @@ it('prefers the OCR name reading whose initials agree with a CURP found in anoth
         ->and($result['fields']['paternal_last_name']['value'])->toBe('DELFIN')
         ->and($result['fields']['maternal_last_name']['value'])->toBe('AYUSO');
 });
+
+it('keeps safe surname matches when one given-name initial is unreadable', function () {
+    $result = app(IneTextParser::class)->parse(<<<'TEXT'
+        NOMBRE
+        DELFIN
+        AYUSO
+        MELLY GRACIELA
+        DOMICILIO
+        AV MIGUEL ALEMAN 434
+        CURP DEAN910525MVZLYL00
+        TEXT);
+
+    expect($result['fields']['paternal_last_name']['value'])->toBe('DELFIN')
+        ->and($result['fields']['maternal_last_name']['value'])->toBe('AYUSO')
+        ->and($result['fields'])->not->toHaveKey('first_name');
+});
