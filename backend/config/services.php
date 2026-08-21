@@ -7,6 +7,10 @@ return [
         'imagemagick_path' => env('INE_OCR_IMAGEMAGICK_PATH', 'convert'),
     ],
 
+    'paddle_ocr' => [
+        'base_url' => env('INE_PADDLE_OCR_URL'),
+    ],
+
     'openai_vision' => [
         'api_key' => env('OPENAI_API_KEY'),
         'model' => env('OPENAI_VISION_MODEL', 'gpt-5.4-mini'),

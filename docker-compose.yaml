@@ -23,6 +23,7 @@ x-app-environment: &app-environment
   FILESYSTEM_DISK: local
   INE_OCR_TESSERACT_PATH: /usr/bin/tesseract
   INE_OCR_IMAGEMAGICK_PATH: /usr/bin/convert
+  INE_PADDLE_OCR_URL: http://ocr:8000
   TRUSTED_PROXIES: "${TRUSTED_PROXIES:-127.0.0.1}"
 
 x-app-service: &app-service
@@ -42,6 +43,8 @@ x-app-service: &app-service
     postgres:
       condition: service_healthy
     redis:
+      condition: service_healthy
+    ocr:
       condition: service_healthy
 
 services:
@@ -97,6 +100,28 @@ services:
       timeout: 5s
       retries: 10
 
+  ocr:
+    build:
+      context: "${BUILD_CONTEXT:-.}"
+      dockerfile: docker/ocr/Dockerfile
+    image: afiliados-ojev-ocr:latest
+    restart: unless-stopped
+    environment:
+      PADDLE_PDX_MODEL_SOURCE: BOS
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
+      OMP_NUM_THREADS: "2"
+      OPENBLAS_NUM_THREADS: "2"
+    volumes:
+      - ocr_models:/models
+    mem_limit: 3g
+    cpus: 1.75
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   web:
     <<: *app-service
     networks:
@@ -124,6 +149,7 @@ volumes:
   app_storage:
   postgres_data:
   redis_data:
+  ocr_models:
 
 networks:
   proxy:
